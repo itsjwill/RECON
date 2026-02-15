@@ -1,0 +1,4 @@
+mcp>=1.0.0
+google-api-python-client>=2.100.0
+patchright>=1.48.0
+python-dotenv>=1.0.0

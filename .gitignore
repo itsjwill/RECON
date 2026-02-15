@@ -1,0 +1,31 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Runtime data
+data/
+.memory/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

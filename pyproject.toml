@@ -1,0 +1,20 @@
+[project]
+name = "auto-research-mcp"
+version = "0.2.0"
+description = "MCP server that auto-researches topics via YouTube, papers, podcasts and NotebookLM"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "google-api-python-client>=2.100.0",
+    "patchright>=1.48.0",
+    "python-dotenv>=1.0.0",
+    "youtube-transcript-api>=0.6.0",
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+auto-research = "src.server:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
