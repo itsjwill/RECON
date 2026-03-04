@@ -1,15 +1,16 @@
 <div align="center">
 
-# RECON — Multi-Source Research Engine That Learns What Gives You Edge
+# RECON — AI Research Engine That Finds What Others Miss
 
-### Research YouTube, academic papers, and podcasts in one command. Scores every source for substance, credibility, and transcript depth. Builds a compounding knowledge graph that gets smarter the more you use it.
+### Free alternative to Perplexity Pro, Elicit, Consensus, SciSpace
 
+![Stars](https://img.shields.io/github/stars/itsjwill/RECON?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge)
 ![MCP](https://img.shields.io/badge/MCP-Claude_Code-orange?style=for-the-badge)
 ![Updated](https://img.shields.io/badge/Updated-2026-blue?style=for-the-badge)
 
-**Compress weeks of research into minutes. Stop reading garbage. Let the engine find edge.**
+**One command. YouTube, papers, podcasts — scored, filtered, and loaded into a queryable NotebookLM notebook.**
 
 </div>
 
@@ -20,7 +21,7 @@
 One command:
 
 ```
-research("order flow trading", sources=["youtube", "papers"], mode="trading")
+research("prompt engineering techniques", sources=["youtube", "papers"])
 ```
 
 What happens:
@@ -36,28 +37,46 @@ Next research session? The system already knows what worked last time.
 
 ---
 
-## The Edge Problem
+## Why Not Just Use Perplexity?
 
-Most research tools find you **popular** content. Popular = consensus. Consensus = no edge.
+| Feature | Perplexity Pro | Elicit | RECON |
+|---------|---------------|--------|-------|
+| **Source scoring** | No — shows top results | Citation count only | 8-factor scoring (substance, credibility, engagement, recency, velocity, relevance, transcript, feedback) |
+| **Transcript analysis** | No | No | Analyzes what the speaker actually said — hedging, failures, specificity |
+| **Clickbait detection** | No | N/A | Penalizes ALL CAPS titles, sensational language, empty descriptions |
+| **Knowledge graph** | No | No | Connects concepts across sessions, finds gaps, suggests next research |
+| **Feedback loop** | No | No | Tracks which sources produced real results — boosts them in future searches |
+| **Expert mode** | No | No | Inverts popularity scoring to find practitioners over influencers |
+| **NotebookLM integration** | No | No | Creates queryable notebooks you can have conversations with |
+| **Contrarian search** | No | No | Auto-searches for criticism and opposing viewpoints |
+| **Cost** | $20/month | $10/month | **$0/month** |
 
-RECON has a `trading` mode that **inverts popularity scoring**:
+---
 
-| Signal | General Mode | Trading Mode |
-|--------|-------------|--------------|
+## Expert Mode
+
+Most research tools find you **popular** content. Popular = mainstream consensus. RECON has an `expert` mode that **inverts popularity scoring** to find practitioners instead of influencers:
+
+| Signal | General Mode | Expert Mode |
+|--------|-------------|-------------|
 | Views | High views = good | **5K-50K sweet spot** (practitioners, not mainstream) |
 | Velocity | Trending = surface first | **Removed entirely** (trending = consensus) |
 | Transcript | 14% weight | **24% weight** (substance over hype) |
 | Credibility | 9% weight | **20% weight** (practitioners over influencers) |
 | Engagement | Like ratio | Like ratio (same — honest signal either way) |
 
-The thesis: a 12K-view video from a trader who discusses **what went wrong** and **cites specific data** is worth more than a 500K-view video that says "this strategy is GUARANTEED to work."
+The thesis: a 12K-view video from someone who discusses **what went wrong** and **cites specific data** is worth more than a 500K-view video that says "this technique is GUARANTEED to work."
+
+```
+research("RAG architecture", mode="expert", sources=["youtube", "papers"])
+```
 
 ---
 
 ## Architecture
 
 ```
-research("order flow trading")
+research("prompt engineering")
          |
     +----+--------------------+
     v                         v
@@ -96,9 +115,9 @@ research("order flow trading")
     |            |
     +----+-------+
          v
-[Feedback Loop]          [Edge Tracker]
+[Feedback Loop]          [Outcome Tracker]
  learns which             tracks which research
- channels work            produced real P&L
+ channels work            produced real results
 ```
 
 ---
@@ -119,7 +138,7 @@ research("order flow trading")
 
 ---
 
-## Substance Detection (Transcript v2)
+## Substance Detection
 
 Most YouTube scoring looks at views and likes. RECON looks at **what the person actually said**.
 
@@ -131,7 +150,7 @@ Nuanced thinkers acknowledge complexity:
 
 ### 2. Failure Discussion (35% — heaviest factor)
 Practitioners talk about what went wrong:
-> "doesn't work when", "the risk is", "I was wrong", "lesson learned", "lost money", "the hard way"
+> "doesn't work when", "the risk is", "I was wrong", "lesson learned", "the hard way"
 
 ### 3. Specificity (35%)
 Grounded speakers cite data:
@@ -141,15 +160,15 @@ A video can have 1M views and perfect engagement but still score low on substanc
 
 ---
 
-## Credibility Scoring (v2)
+## Credibility Scoring
 
-**What got dropped:** Practitioner keywords. Anyone can type "CFA" or "10 years experience" in their channel description. Self-reported credentials are meaningless.
+**What got dropped:** Self-reported credentials. Anyone can type "10 years experience" in their channel description. Meaningless.
 
 **What replaced it:**
 
 | Factor | Weight | Why |
 |--------|--------|-----|
-| Clickbait Detection | 45% | Most honest signal. "GUARANTEED PROFITS" is unfakeable garbage. |
+| Clickbait Detection | 45% | Most honest signal. "GUARANTEED RESULTS" is unfakeable garbage. |
 | Upload Consistency | 25% | Regular uploads over years = committed to the craft |
 | Description Substance | 20% | Length + specificity (URLs, dates, contact info) |
 | Channel Age | 10% | Weak signal — punishes early adopters of new topics |
@@ -170,21 +189,21 @@ Every research session extracts entities (topics, concepts, channels, authors) a
 After 5+ sessions, the graph reveals:
 
 - **Knowledge Gaps** — concepts that keep appearing but haven't been researched directly
-- **Cross-Domain Insights** — entities that bridge different research areas (e.g., "momentum" appears in both trading AND marketing research)
+- **Cross-Domain Insights** — entities that bridge different research areas (e.g., "embeddings" appears in both NLP AND image generation research)
 - **Bridge Concepts** — central nodes that connect many topics in your expertise
-- **Stale Notebooks** — trading research decays in 14 days (alpha gets arbed), general in 30
+- **Stale Notebooks** — time-sensitive research decays in 14 days, general in 30
 
 ```
 suggest_research()
-  -> "You've researched 'order flow' 3 times — go deeper"
-  -> "'market microstructure' appears across 4 notebooks but was never researched directly"
-  -> "'momentum' bridges trading and marketing research — cross-domain opportunity"
-  -> "[TRADING] Research on 'scalping setups' is 18 days old — URGENT: refresh"
+  -> "You've researched 'RAG' 3 times — go deeper"
+  -> "'vector databases' appears across 4 notebooks but was never researched directly"
+  -> "'embeddings' bridges NLP and computer vision research — cross-domain opportunity"
+  -> "Research on 'LLM fine-tuning' is 18 days old — URGENT: refresh"
 ```
 
 ---
 
-## Edge Tracker
+## Outcome Tracker
 
 The feedback loop most research tools are missing:
 
@@ -195,20 +214,20 @@ Research -> Implement -> Results -> Better Research
 After you implement something from a research notebook:
 
 ```
-track_edge(notebook_id="research-ofi-vpin", result="edge", notes="OFI strategy increased win rate 15%")
+track_edge(notebook_id="research-rag-architecture", result="edge", notes="New chunking strategy improved retrieval accuracy 23%")
 ```
 
 The system learns:
 - Which **channels** produce real results (boosted in future searches)
-- Which **topics** have high edge rates (surfaced first in suggestions)
+- Which **topics** have high success rates (surfaced first in suggestions)
 - Which **source types** deliver (YouTube vs papers vs podcasts)
-- Overall **research ROI** — what % of sessions produced actionable edge
+- Overall **research ROI** — what % of sessions produced actionable insights
 
 ```
 edge_report()
-  -> "SMB Capital: 3/4 sessions produced edge (75%)"
-  -> "Trading topic edge rate: 42% (above average)"
-  -> "YouTube delivers 2x more edge than papers for trading topics"
+  -> "3Blue1Brown: 3/4 sessions produced results (75%)"
+  -> "AI topic success rate: 42% (above average)"
+  -> "YouTube delivers 2x more actionable content than papers for applied topics"
 ```
 
 ---
@@ -218,8 +237,8 @@ edge_report()
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/itsjwill/auto-research-mcp.git
-cd auto-research-mcp
+git clone https://github.com/itsjwill/RECON.git
+cd RECON
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
@@ -240,9 +259,9 @@ YouTube API key is the only requirement. OpenAlex (papers) needs no key. Podcast
 {
   "mcpServers": {
     "auto-research": {
-      "command": "/path/to/auto-research-mcp/.venv/bin/python",
+      "command": "/path/to/RECON/.venv/bin/python",
       "args": ["-m", "src.server"],
-      "cwd": "/path/to/auto-research-mcp"
+      "cwd": "/path/to/RECON"
     }
   }
 }
@@ -251,7 +270,7 @@ YouTube API key is the only requirement. OpenAlex (papers) needs no key. Podcast
 ### 4. Use it
 
 ```
-research("order flow trading", mode="trading", sources=["youtube", "papers"])
+research("prompt engineering techniques", sources=["youtube", "papers"])
 ```
 
 ---
@@ -272,11 +291,11 @@ research("order flow trading", mode="trading", sources=["youtube", "papers"])
 ## File Structure
 
 ```
-auto-research-mcp/
+RECON/
 ├── src/
-│   ├── server.py            # MCP server — 9 tools, v0.4.0
+│   ├── server.py            # MCP server — 9 tools
 │   ├── config.py            # Environment + settings
-│   ├── youtube_search.py    # YouTube API + 8-factor scoring + trading mode
+│   ├── youtube_search.py    # YouTube API + 8-factor scoring + expert mode
 │   ├── transcript.py        # Transcript extraction + substance detection
 │   ├── credibility.py       # Channel credibility (clickbait, consistency)
 │   ├── paper_search.py      # OpenAlex academic paper search
@@ -285,14 +304,23 @@ auto-research-mcp/
 │   ├── library_sync.py      # Shared library.json management
 │   ├── feedback.py          # Usage tracking + stale detection
 │   ├── knowledge_graph.py   # Cross-notebook entity graph
-│   └── edge_tracker.py      # Research ROI tracking
+│   └── edge_tracker.py      # Research outcome tracking
 ├── data/
 │   ├── knowledge_graph.json # Entity graph (auto-created)
 │   └── feedback.json        # Usage data (auto-created)
 ├── pyproject.toml
 ├── requirements.txt
-└── .env                     # API keys (not committed)
+├── .env.example             # API key template
+└── .env                     # Your API keys (not committed)
 ```
+
+---
+
+## Join The Community
+
+Built by the team at **[The Agentic Advantage](https://www.skool.com/ai-elite-9507/about?ref=67521860944147018da6145e3db6e51c)**
+
+Get help setting up RECON, share research workflows, and connect with other builders using AI tools that actually work.
 
 ---
 
@@ -309,6 +337,6 @@ auto-research-mcp/
 
 <div align="center">
 
-**Built for finding edge, not collecting bookmarks.**
+**Built for finding what matters, not collecting bookmarks.**
 
 </div>

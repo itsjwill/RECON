@@ -1,7 +1,7 @@
 [project]
-name = "auto-research-mcp"
-version = "0.2.0"
-description = "MCP server that auto-researches topics via YouTube, papers, podcasts and NotebookLM"
+name = "recon-mcp"
+version = "1.0.0"
+description = "AI research engine — searches YouTube, papers, podcasts, scores for substance and credibility, creates NotebookLM notebooks"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.0.0",

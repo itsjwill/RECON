@@ -1,4 +1,4 @@
-"""Feedback loop — track what works, learn from usage, compound the edge."""
+"""Feedback loop — track what works, learn from usage, compound your research."""
 
 import json
 import logging
@@ -227,11 +227,11 @@ def get_topic_history() -> list[dict]:
     return result
 
 
-def get_stale_notebooks(trading_days: int = 14, general_days: int = 30) -> list[dict]:
+def get_stale_notebooks(time_sensitive_days: int = 14, general_days: int = 30) -> list[dict]:
     """
     Find research notebooks that are getting stale and need refreshing.
 
-    Trading research decays faster (alpha gets arbed out).
+    Time-sensitive research decays faster (rapidly evolving fields).
     General research stays relevant longer.
 
     Returns list of stale notebooks with staleness info.
@@ -240,7 +240,7 @@ def get_stale_notebooks(trading_days: int = 14, general_days: int = 30) -> list[
     now = datetime.now(timezone.utc)
     stale = []
 
-    # Trading keywords — if the topic contains these, it's trading research
+    # Time-sensitive keywords — topics that evolve rapidly and need frequent refreshing
     trading_keywords = {
         "trading", "trade", "scalping", "order flow", "strategy", "backtest",
         "indicator", "setup", "entry", "exit", "momentum", "mean reversion",
@@ -248,6 +248,8 @@ def get_stale_notebooks(trading_days: int = 14, general_days: int = 30) -> list[
         "crypto", "bitcoin", "ethereum", "defi", "alpha", "edge", "signal",
         "bot", "algorithm", "quant", "market making", "spread", "volatility",
         "rsi", "macd", "vwap", "ofi", "vpin", "tape reading", "price action",
+        "ai model", "llm", "gpt", "claude", "gemini", "startup", "saas",
+        "framework", "library", "api", "breaking change", "vulnerability",
     }
 
     for nb_id, nb_info in data.get("notebooks", {}).items():
@@ -265,7 +267,7 @@ def get_stale_notebooks(trading_days: int = 14, general_days: int = 30) -> list[
 
         # Determine if this is trading research
         is_trading = any(kw in topic for kw in trading_keywords)
-        threshold = trading_days if is_trading else general_days
+        threshold = time_sensitive_days if is_trading else general_days
 
         if age_days >= threshold:
             stale.append({

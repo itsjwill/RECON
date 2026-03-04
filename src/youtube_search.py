@@ -35,11 +35,11 @@ def _score_views(views: int) -> float:
     return min(1.0, max(0, (math.log10(views) - 2) / 5))
 
 
-def _score_views_trading(views: int) -> float:
-    """Score 0-1 INVERTED for trading — low views = hidden edge.
+def _score_views_expert(views: int) -> float:
+    """Score 0-1 INVERTED for expert mode — low views = practitioner content.
 
-    Sweet spot: 5K-50K views (real practitioners, not mainstream).
-    High views (500K+) = consensus = everyone knows it = alpha decayed.
+    Sweet spot: 5K-50K views (real practitioners, not influencers).
+    High views (500K+) = mainstream consensus, not deep expertise.
     """
     if views <= 0:
         return 0
@@ -54,7 +54,7 @@ def _score_views_trading(views: int) -> float:
     elif views <= 500000:
         return 0.4  # Mainstream
     else:
-        return 0.2  # Everyone's seen it — consensus, not edge
+        return 0.2  # Everyone's seen it — consensus, not deep expertise
 
 
 def _score_channel_subs(subs: int) -> float:
@@ -157,13 +157,13 @@ def _compute_score(video: dict, query: str, mode: str = "general") -> dict:
 
     Modes:
     - "general": Standard scoring — popular = good (learning mode)
-    - "trading": Inverted popularity — low views = hidden edge, substance over hype
+    - "expert": Inverted popularity — finds practitioners over influencers, substance over hype
 
     General weights (sum to 1.0):
     - views: 0.15, channel: 0.12, relevance: 0.18, recency: 0.10
     - engagement: 0.10, velocity: 0.12, transcript: 0.14, credibility: 0.09
 
-    Trading weights (sum to 1.0) — NO velocity (trending = consensus = no edge):
+    Expert weights (sum to 1.0) — NO velocity (trending = mainstream consensus):
     - views: 0.05 (inverted), channel: 0.07, relevance: 0.18, recency: 0.14
     - engagement: 0.12, transcript: 0.24, credibility: 0.20
     """
@@ -172,11 +172,11 @@ def _compute_score(video: dict, query: str, mode: str = "general") -> dict:
     subs = int(video.get("channel_subs", 0))
     published_at = video.get("published_at", "")
 
-    if mode == "trading":
-        # Trading mode: substance > popularity. NO velocity — trending = consensus = no edge.
-        # The entire point is to find what nobody's watching yet.
+    if mode in ("trading", "expert"):
+        # Expert mode: substance > popularity. NO velocity — trending = mainstream consensus.
+        # The entire point is to find practitioners, not influencers.
         breakdown = {
-            "views": _score_views_trading(views) * 0.05,
+            "views": _score_views_expert(views) * 0.05,
             "channel": _score_channel_subs(subs) * 0.07,
             "relevance": _score_relevance(query, video.get("title", ""), video.get("description", "")) * 0.18,
             "recency": _score_recency(published_at) * 0.14,
@@ -227,7 +227,7 @@ async def search_and_curate(
     Search YouTube, score, filter, and return curated video list.
 
     v2: includes transcript analysis, credibility scoring, and feedback boost.
-    v3: mode="trading" inverts popularity scoring — hidden gems > mainstream.
+    v3: mode="expert" inverts popularity scoring — practitioners > influencers.
 
     Returns:
         {

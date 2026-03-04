@@ -1,7 +1,7 @@
 """Edge Tracker — close the loop between research and real results.
 
 The missing piece: track which research sessions actually produced
-profitable trading edge, then use that signal to boost similar
+actionable results, then use that signal to boost similar
 sources/channels/topics in future research.
 
 This is what nobody else has. Research → Implement → Results → Better Research.
@@ -173,8 +173,8 @@ def get_channel_edge_boost(channel: str) -> float:
 
     Returns 0.0 to 0.25 boost.
 
-    Channels that have produced real trading edge get boosted hard.
-    Channels that produced negative edge get penalized.
+    Channels that have produced real results get boosted hard.
+    Channels that produced negative results get penalized.
     """
     data = _load_edge_data()
     stats = data.get("channel_edge", {}).get(channel)

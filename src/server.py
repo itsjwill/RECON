@@ -249,7 +249,7 @@ async def suggest_research() -> str:
     for nb in stale[:3]:
         staleness = nb["staleness"]
         urgency = "urgent" if staleness >= 2.0 else "recommended"
-        label = "TRADING" if nb["is_trading"] else "GENERAL"
+        label = "EXPERT" if nb["is_trading"] else "GENERAL"
         suggestions.append({
             "topic": nb["topic"],
             "type": "refresh",
@@ -329,7 +329,7 @@ async def knowledge_map() -> str:
 
 @server.tool()
 async def track_edge(notebook_id: str, result: str, notes: str = "") -> str:
-    """Record whether a research session produced real trading/business edge. result must be 'edge', 'no_edge', or 'negative_edge'."""
+    """Record whether a research session produced real actionable results. result must be 'edge', 'no_edge', or 'negative_edge'."""
     if not notebook_id:
         return "Error: 'notebook_id' is required"
     if not result:
@@ -340,7 +340,7 @@ async def track_edge(notebook_id: str, result: str, notes: str = "") -> str:
 
 @server.tool()
 async def edge_report() -> str:
-    """See your research ROI - which channels, topics, and source types have produced real edge vs not."""
+    """See your research ROI - which channels, topics, and source types have produced real results vs not."""
     report = _get_edge_report()
     return json.dumps(report, indent=2)
 
