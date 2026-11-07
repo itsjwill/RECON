@@ -109,14 +109,19 @@ async def research(topic: str, num_sources: int = 5, sources: list[str] = None, 
                     p["is_contrarian"] = True
                     contrarian_sources.append(p)
 
-        # Unified ranking
+        # Unified ranking (deduped by URL: the contrarian search often returns a main pick)
         all_sources.sort(key=lambda x: x.get("score", 0), reverse=True)
-        if contrarian_sources:
-            contrarian_sources.sort(key=lambda x: x.get("score", 0), reverse=True)
-            selected_sources = all_sources[:num_sources - 1]
-            selected_sources.append(contrarian_sources[0])
+        seen, ranked = set(), []
+        for s in all_sources:
+            if s.get("url") and s["url"] not in seen:
+                seen.add(s["url"])
+                ranked.append(s)
+        contrarian_sources.sort(key=lambda x: x.get("score", 0), reverse=True)
+        contrarian = next((c for c in contrarian_sources if c.get("url") not in set(s["url"] for s in ranked[:num_sources - 1])), None)
+        if contrarian:
+            selected_sources = ranked[:num_sources - 1] + [contrarian]
         else:
-            selected_sources = all_sources[:num_sources]
+            selected_sources = ranked[:num_sources]
 
         source_urls = [s["url"] for s in selected_sources if s.get("url")]
         if not source_urls:
