@@ -1,6 +1,6 @@
 [project]
 name = "recon-mcp"
-version = "1.0.0"
+version = "1.0.1"
 description = "AI research engine — searches YouTube, papers, podcasts, scores for substance and credibility, creates NotebookLM notebooks"
 requires-python = ">=3.11"
 dependencies = [
@@ -8,7 +8,7 @@ dependencies = [
     "google-api-python-client>=2.100.0",
     "patchright>=1.48.0",
     "python-dotenv>=1.0.0",
-    "youtube-transcript-api>=0.6.0",
+    "youtube-transcript-api>=1.0.0",
     "requests>=2.31.0",
 ]
 

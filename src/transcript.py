@@ -122,7 +122,8 @@ def get_transcript(video_id: str) -> str | None:
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
 
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        # youtube-transcript-api >= 1.0: instance API (list_transcripts was removed)
+        transcript_list = YouTubeTranscriptApi().list(video_id)
 
         # Prefer manually created transcripts, fall back to auto-generated
         transcript = None
@@ -142,7 +143,9 @@ def get_transcript(video_id: str) -> str | None:
             return None
 
         entries = transcript.fetch()
-        text = " ".join(entry.get("text", "") for entry in entries)
+        text = " ".join(
+            (e.text if hasattr(e, "text") else e.get("text", "")) for e in entries
+        )
         return text.strip() if text.strip() else None
 
     except Exception as e:

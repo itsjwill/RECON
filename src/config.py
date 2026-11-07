@@ -16,10 +16,12 @@ PODCAST_INDEX_SECRET = os.getenv("PODCAST_INDEX_SECRET", "")
 # ──── NotebookLM MCP shared paths ────
 NOTEBOOKLM_DATA_DIR = Path.home() / "Library" / "Application Support" / "notebooklm-mcp"
 NOTEBOOKLM_STATE_PATH = NOTEBOOKLM_DATA_DIR / "browser_state" / "state.json"
+NOTEBOOKLM_CHROME_PROFILE = NOTEBOOKLM_DATA_DIR / "chrome_profile"
 NOTEBOOKLM_LIBRARY_PATH = NOTEBOOKLM_DATA_DIR / "library.json"
 
 # ──── Browser settings ────
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
+BROWSER_CHANNEL = os.getenv("BROWSER_CHANNEL", "chrome")  # same browser notebooklm-mcp uses
 BROWSER_TIMEOUT = 60_000  # 60s for general navigation
 SOURCE_ADD_TIMEOUT = 120_000  # 120s per source (transcription is slow)
 

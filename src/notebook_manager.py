@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 
 from . import config
+from .auth_keepalive import NOTEBOOKLM_HOME, clear_stale_profile_lock, is_signed_in_url, launch_shared_profile
 
 logger = logging.getLogger("auto-research.notebook")
 
@@ -143,58 +144,59 @@ async def create_notebook_with_sources(topic: str, video_urls: list[str]) -> dic
             "error": str | None,
         }
     """
-    # Check auth state exists
-    state_path = str(config.NOTEBOOKLM_STATE_PATH)
-    if not os.path.exists(state_path):
+    # The login lives in the Chrome profile's cookie store. state.json is only a
+    # snapshot that notebooklm-mcp deletes/ages out, so don't gate on it.
+    if not (config.NOTEBOOKLM_CHROME_PROFILE / "Default" / "Cookies").exists():
         return {
             "notebook_url": "",
             "videos_added": [],
             "videos_failed": video_urls,
-            "error": "NotebookLM auth state not found. Run 'setup_auth' via the NotebookLM MCP first.",
+            "error": "NotebookLM Chrome profile not found. Run notebooklm_login(interactive=true) to sign in.",
+        }
+    if not clear_stale_profile_lock():
+        return {
+            "notebook_url": "",
+            "videos_added": [],
+            "videos_failed": video_urls,
+            "error": "NotebookLM Chrome profile is open in another process (likely a notebooklm-mcp query). Retry in a minute.",
         }
 
     from patchright.async_api import async_playwright
 
     pw = None
-    browser = None
+    context = None
+    page = None
     videos_added = []
     videos_failed = []
     notebook_url = ""
 
     try:
         pw = await async_playwright().start()
-        browser = await pw.chromium.launch(
-            headless=config.HEADLESS,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
-                "--no-first-run",
-            ],
-        )
 
-        # Use non-persistent context with saved auth cookies
-        # This avoids Chrome profile lock conflicts with the NotebookLM MCP
-        context = await browser.new_context(
-            storage_state=state_path,
-            viewport={"width": 1280, "height": 900},
-            locale="en-US",
-        )
-        page = await context.new_page()
+        # Use launch_persistent_context pointed at the same Chrome profile that
+        # notebooklm-mcp writes during setup_auth. This preserves the full browser
+        # fingerprint (service workers, IndexedDB, storage partitions) that Google
+        # requires — non-persistent contexts with storage_state alone trigger 400
+        # "malformed request" errors from NotebookLM.
+        context = await launch_shared_profile(pw, headless=config.HEADLESS)
+        pages = context.pages
+        page = pages[0] if pages else await context.new_page()
 
         # Step 1: Navigate to NotebookLM home
         logger.info("Navigating to NotebookLM...")
-        await page.goto("https://notebooklm.google.com/", wait_until="domcontentloaded", timeout=config.BROWSER_TIMEOUT)
+        await page.goto(NOTEBOOKLM_HOME, wait_until="domcontentloaded", timeout=config.BROWSER_TIMEOUT)
         await asyncio.sleep(3)
 
-        # Check if we landed on a login page
+        # Check if we landed on a login page (Google sign-in or the signed-out /trynow page)
         current_url = page.url
-        if "accounts.google.com" in current_url:
+        if not is_signed_in_url(current_url):
             await _take_screenshot(page, "auth_redirect")
             return {
                 "notebook_url": "",
                 "videos_added": [],
                 "videos_failed": video_urls,
-                "error": "Redirected to Google login. Auth cookies may be expired. Run 'setup_auth' via NotebookLM MCP.",
+                "error": f"NotebookLM is signed out (landed on {current_url}). "
+                "Run notebooklm_login(interactive=true) to sign in again.",
             }
 
         # Also try to restore sessionStorage
@@ -290,8 +292,11 @@ async def create_notebook_with_sources(topic: str, video_urls: list[str]) -> dic
         }
 
     finally:
-        if browser:
-            await browser.close()
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
         if pw:
             await pw.stop()
 
@@ -394,7 +399,7 @@ async def _get_share_link(page) -> str | None:
             # Read from clipboard
             try:
                 link = await page.evaluate("navigator.clipboard.readText()")
-                if link and "notebooklm.google.com" in link:
+                if link and ("notebook.google.com" in link or "notebooklm.google.com" in link):
                     logger.info(f"  Share link: {link}")
                     return link
             except Exception:

@@ -1,8 +1,11 @@
 """Auto-Research MCP Server v3 — FastMCP rewrite for Claude Code compatibility."""
 
+import asyncio
 import json
 import logging
 import sys
+import threading
+import time
 import traceback
 
 from mcp.server.fastmcp import FastMCP
@@ -12,6 +15,7 @@ from .youtube_search import search_and_curate
 from .paper_search import search_papers as _search_papers_fn
 from .podcast_search import search_podcasts
 from .notebook_manager import create_notebook_with_sources
+from .auth_keepalive import refresh_auth_state
 from .library_sync import add_notebook_to_library, list_research_notebooks
 from .feedback import record_research, rate_notebook, get_feedback_summary, get_topic_history, get_stale_notebooks
 from .knowledge_graph import (
@@ -345,13 +349,43 @@ async def edge_report() -> str:
     return json.dumps(report, indent=2)
 
 
+@server.tool()
+async def notebooklm_login(interactive: bool = False) -> str:
+    """Check/refresh the shared NotebookLM (notebook.google.com) login used by research and notebooklm-mcp. interactive=True opens a Chrome window for the user to sign in (use this instead of notebooklm-mcp setup_auth, which no longer detects the rebranded site)."""
+    result = await refresh_auth_state(interactive=interactive)
+    if result["login_required"] and not interactive:
+        result["next_step"] = "Call notebooklm_login(interactive=true) and have the user sign in to Google in the window."
+    return json.dumps(result, indent=2)
+
+
 # ──── Entry point ────
+
+KEEPALIVE_INTERVAL_S = 6 * 60 * 60
+
+
+def _keepalive_loop():
+    """Use the Chrome profile every 6h so Google rotates the session cookies
+    instead of forcing a "Verify it's you" re-login, and keep state.json fresh
+    so notebooklm-mcp's 24h check reports authenticated=true."""
+    time.sleep(60)
+    while True:
+        try:
+            state = config.NOTEBOOKLM_STATE_PATH
+            # Several Claude sessions each run a server; skip if another one just refreshed
+            if not state.exists() or time.time() - state.stat().st_mtime > KEEPALIVE_INTERVAL_S - 600:
+                result = asyncio.run(refresh_auth_state())
+                logger.info(f"NotebookLM keepalive: {result}")
+        except Exception as e:
+            logger.warning(f"NotebookLM keepalive failed: {e}")
+        time.sleep(KEEPALIVE_INTERVAL_S)
+
 
 def main():
     """Start the MCP server."""
     logger.info("Starting auto-research v0.5.0")
     if not config.YOUTUBE_API_KEY:
         logger.warning("YOUTUBE_API_KEY not set")
+    threading.Thread(target=_keepalive_loop, daemon=True, name="notebooklm-keepalive").start()
     server.run(transport="stdio")
 
 
