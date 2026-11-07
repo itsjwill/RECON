@@ -1,35 +1,35 @@
 """Keep the shared NotebookLM login alive.
 
-notebooklm-mcp stores the real Google session in a persistent Chrome profile
-(cookies valid ~13 months), but it reports `authenticated=false` once
-browser_state/state.json is older than 24h, and auto-research used to refuse
-to run when that file was missing. This module opens the profile headless,
-confirms NotebookLM loads without a Google login redirect, and rewrites
+The Google session lives in the shared browser's Chrome profile (see
+browser_pool.py). notebooklm-mcp reports `authenticated=false` once
+browser_state/state.json is older than 24h, so this module opens NotebookLM in
+the shared browser, confirms there is no Google login redirect, and rewrites
 state.json so both servers agree the session is good.
 
-Run directly (launchd does this every 6h):
-    .venv/bin/python3 -m src.auth_keepalive
-Sign in again (opens a Chrome window):
-    .venv/bin/python3 -m src.auth_keepalive --login
+Run directly:
+    .venv/bin/python3 -m src.auth_keepalive          # check + refresh state.json
+    .venv/bin/python3 -m src.auth_keepalive --login  # sign in (opens a Chrome window)
+    .venv/bin/python3 -m src.auth_keepalive --reap   # close the shared browser if idle
 Exit codes: 0 = logged in + state refreshed, 2 = Google login required,
-3 = profile busy / browser error.
+3 = browser error.
 """
 
 import asyncio
 import json
 import logging
-import os
 import subprocess
 import sys
 from datetime import datetime
 
 from . import config
+from .browser_pool import ensure_browser, has_google_session, reap_if_idle, run_in_browser, scrub_exported_session
 
 logger = logging.getLogger("auto-research.keepalive")
 
 NOTEBOOKLM_HOME = "https://notebook.google.com/"
 LOGIN_URL = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fnotebook.google.com%2F"
 LOGIN_TIMEOUT_S = 15 * 60
+CHECK_TIMEOUT_S = 120
 STATUS_PATH = config.NOTEBOOKLM_DATA_DIR / "keepalive_status.json"
 
 
@@ -44,117 +44,77 @@ def is_signed_in_url(url: str) -> bool:
     )
 
 
-def clear_stale_profile_lock() -> bool:
-    """Remove Chrome Singleton* files left behind by a crashed browser.
+async def _check(context, page) -> dict:
+    await page.goto(NOTEBOOKLM_HOME, wait_until="domcontentloaded", timeout=config.BROWSER_TIMEOUT)
+    await asyncio.sleep(4)
+    if not is_signed_in_url(page.url) or not await has_google_session(context):
+        return {"ok": False, "login_required": True, "error": f"Not signed in to Google (page: {page.url})"}
+    scrub_exported_session()
+    return {"ok": True, "login_required": False, "error": None}
 
-    Returns True if the profile is free to open (no live process holds it).
-    """
-    profile = config.NOTEBOOKLM_CHROME_PROFILE
-    lock = profile / "SingletonLock"
-    if not os.path.islink(lock):
-        return True
-    # Lock target looks like "<hostname>-<pid>"
-    target = os.readlink(lock)
+
+async def _login(context, page) -> dict:
+    await page.bring_to_front()
+    await page.goto(NOTEBOOKLM_HOME, wait_until="domcontentloaded", timeout=config.BROWSER_TIMEOUT)
+    await asyncio.sleep(4)
+    if not is_signed_in_url(page.url) or not await has_google_session(context):
+        logger.info("Sign in to Google in the Chrome window (waiting up to 15 min)...")
+        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=config.BROWSER_TIMEOUT)
+        # Done as soon as Google issues sign-in cookies, whatever page Google shows
+        # next (security checkup, "verify it's you", account chooser...).
+        for _ in range(LOGIN_TIMEOUT_S):
+            if await has_google_session(context):
+                break
+            await asyncio.sleep(1)
+        else:
+            return {"ok": False, "login_required": True, "error": "Timed out waiting for Google sign-in"}
+        await asyncio.sleep(3)
+        await page.goto(NOTEBOOKLM_HOME, wait_until="domcontentloaded", timeout=config.BROWSER_TIMEOUT)
+        await asyncio.sleep(4)
+        if not is_signed_in_url(page.url):
+            return {"ok": False, "login_required": True, "error": f"Signed in to Google but NotebookLM sent us to {page.url}"}
+    scrub_exported_session()
+    return {"ok": True, "login_required": False, "error": None}
+
+
+def _write_status(result: dict) -> None:
     try:
-        pid = int(target.rsplit("-", 1)[1])
-        os.kill(pid, 0)
-        logger.warning(f"Profile in use by live pid {pid}")
-        return False
-    except (ValueError, IndexError, ProcessLookupError):
+        STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATUS_PATH.write_text(json.dumps({**result, "checked_at": datetime.now().isoformat(timespec="seconds")}, indent=2))
+    except OSError:
         pass
-    except PermissionError:
-        return False
-    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
-        try:
-            os.unlink(profile / name)
-        except FileNotFoundError:
-            pass
-    logger.info(f"Cleared stale profile lock ({target})")
-    return True
-
-
-async def launch_shared_profile(pw, headless: bool):
-    """Open the notebooklm-mcp Chrome profile.
-
-    Uses installed Google Chrome first: the profile is written by Chrome, and
-    the bundled Playwright Chromium lives in a cache dir that gets wiped.
-    """
-    options = dict(
-        user_data_dir=str(config.NOTEBOOKLM_CHROME_PROFILE),
-        headless=headless,
-        viewport={"width": 1280, "height": 900},
-        locale="en-US",
-        args=[
-            "--disable-blink-features=AutomationControlled",
-            "--disable-dev-shm-usage",
-            "--no-first-run",
-            "--no-default-browser-check",
-        ],
-    )
-    try:
-        return await pw.chromium.launch_persistent_context(channel=config.BROWSER_CHANNEL, **options)
-    except Exception as e:
-        if config.BROWSER_CHANNEL == "chromium":
-            raise
-        logger.warning(f"Chrome channel '{config.BROWSER_CHANNEL}' failed ({e}); falling back to chromium")
-        return await pw.chromium.launch_persistent_context(channel="chromium", **options)
-
-
-async def _save_state(context, page) -> None:
-    """Write state.json + session.json where notebooklm-mcp expects them."""
-    state_path = config.NOTEBOOKLM_STATE_PATH
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    await context.storage_state(path=str(state_path))
-    session_data = await page.evaluate(
-        "() => { const o = {}; for (let i = 0; i < sessionStorage.length; i++) {"
-        " const k = sessionStorage.key(i); o[k] = sessionStorage.getItem(k); } return o; }"
-    )
-    (state_path.parent / "session.json").write_text(json.dumps(session_data))
 
 
 async def refresh_auth_state(interactive: bool = False) -> dict:
-    """Open NotebookLM with the shared profile and re-save state.json.
+    """Open NotebookLM in the shared browser and re-save state.json.
 
     interactive=True shows a Chrome window and waits for the user to sign in
     (replaces notebooklm-mcp's setup_auth, which only recognises the old
-    notebooklm.google.com host and so never completes).
+    notebooklm.google.com host and so never completes). Afterwards the shared
+    browser goes back to headless.
 
+    Never fails because another call is running: every call gets its own tab.
     Returns {"ok": bool, "login_required": bool, "error": str | None}.
     """
-    if not clear_stale_profile_lock():
-        return {"ok": False, "login_required": False, "error": "Chrome profile is in use by another process"}
-
-    from patchright.async_api import async_playwright
-
-    pw = await async_playwright().start()
-    context = None
     try:
-        context = await launch_shared_profile(pw, headless=not interactive)
-        page = context.pages[0] if context.pages else await context.new_page()
-        await page.goto(NOTEBOOKLM_HOME, wait_until="domcontentloaded", timeout=config.BROWSER_TIMEOUT)
-        await asyncio.sleep(4)
-
-        if not is_signed_in_url(page.url):
-            if not interactive:
-                return {"ok": False, "login_required": True, "error": f"Redirected to {page.url}"}
-            logger.info("Sign in to Google in the Chrome window (waiting up to 15 min)...")
-            await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=config.BROWSER_TIMEOUT)
-            for _ in range(LOGIN_TIMEOUT_S):
-                if is_signed_in_url(page.url):
-                    break
-                await asyncio.sleep(1)
-            else:
-                return {"ok": False, "login_required": True, "error": "Timed out waiting for Google sign-in"}
-            await asyncio.sleep(3)
-
-        await _save_state(context, page)
-        return {"ok": True, "login_required": False, "error": None}
+        if interactive:
+            result = await run_in_browser(_login, LOGIN_TIMEOUT_S + 120, headed=True)
+        else:
+            result = await run_in_browser(_check, CHECK_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        result = {"ok": False, "login_required": False,
+                  "error": "NotebookLM did not respond in time; that tab was closed. Retry."}
     except Exception as e:
-        return {"ok": False, "login_required": False, "error": str(e)}
+        result = {"ok": False, "login_required": False, "error": f"{type(e).__name__}: {e}"}
     finally:
-        if context:
-            await context.close()
-        await pw.stop()
+        if interactive:
+            # Back to an invisible browser for normal research calls.
+            try:
+                await asyncio.to_thread(ensure_browser, False, True)
+            except Exception as e:
+                logger.warning(f"Could not restart shared browser headless: {e}")
+    _write_status(result)
+    return result
 
 
 def _notify(message: str) -> None:
@@ -171,15 +131,13 @@ def _notify(message: str) -> None:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if "--reap" in sys.argv:
+        reap_if_idle()
+        return 0
     result = asyncio.run(refresh_auth_state(interactive="--login" in sys.argv))
-    result["checked_at"] = datetime.now().isoformat(timespec="seconds")
-    try:
-        STATUS_PATH.write_text(json.dumps(result, indent=2))
-    except OSError:
-        pass
 
     if result["ok"]:
-        logger.info(f"NotebookLM session valid, state refreshed: {config.NOTEBOOKLM_STATE_PATH}")
+        logger.info(f"NotebookLM session valid (shared browser)")
         return 0
     if result["login_required"]:
         logger.error(f"Google login required: {result['error']}")

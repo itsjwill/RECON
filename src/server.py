@@ -14,8 +14,9 @@ from . import config
 from .youtube_search import search_and_curate
 from .paper_search import search_papers as _search_papers_fn
 from .podcast_search import search_podcasts
-from .notebook_manager import create_notebook_with_sources
+from .notebook_manager import create_notebook_with_sources, ask_notebook as _ask_notebook
 from .auth_keepalive import refresh_auth_state
+from .browser_pool import reap_if_idle
 from .library_sync import add_notebook_to_library, list_research_notebooks
 from .feedback import record_research, rate_notebook, get_feedback_summary, get_topic_history, get_stale_notebooks
 from .knowledge_graph import (
@@ -350,6 +351,23 @@ async def edge_report() -> str:
 
 
 @server.tool()
+async def ask_notebook(question: str, notebook_id: str = "", notebook_url: str = "") -> str:
+    """Ask a question of a NotebookLM notebook (answer grounded in its sources). Use this instead of notebooklm-mcp ask_question: it runs in auto-research's shared logged-in browser, so many questions and research calls can run at once, and it never copies the Google login into a second browser (which makes Google sign the account out). Pass notebook_id (from research / list_research_notebooks) or notebook_url. Follow-ups in the same notebook keep NotebookLM's chat context."""
+    url = notebook_url
+    if not url and notebook_id:
+        from .library_sync import read_library
+        for nb in read_library().get("notebooks", []):
+            if nb.get("id") == notebook_id:
+                url = nb.get("url", "")
+                break
+        if not url:
+            return json.dumps({"error": f"Unknown notebook_id '{notebook_id}'. Call list_research_notebooks_tool."})
+    if not url or url.rstrip("/").endswith("/notebook/creating"):
+        return json.dumps({"error": "Need a valid notebook_url or notebook_id."})
+    return json.dumps(await _ask_notebook(url, question), indent=2)
+
+
+@server.tool()
 async def notebooklm_login(interactive: bool = False) -> str:
     """Check/refresh the shared NotebookLM (notebook.google.com) login used by research and notebooklm-mcp. interactive=True opens a Chrome window for the user to sign in (use this instead of notebooklm-mcp setup_auth, which no longer detects the rebranded site)."""
     result = await refresh_auth_state(interactive=interactive)
@@ -361,23 +379,31 @@ async def notebooklm_login(interactive: bool = False) -> str:
 # ──── Entry point ────
 
 KEEPALIVE_INTERVAL_S = 6 * 60 * 60
+KEEPALIVE_TICK_S = 5 * 60
 
 
 def _keepalive_loop():
-    """Use the Chrome profile every 6h so Google rotates the session cookies
-    instead of forcing a "Verify it's you" re-login, and keep state.json fresh
-    so notebooklm-mcp's 24h check reports authenticated=true."""
+    """Every 5 min: close the shared browser if it has sat idle 30 min.
+    Every 6h: use the login so Google rotates the session cookies instead of
+    forcing a "Verify it's you" re-login, and keep state.json fresh so
+    notebooklm-mcp's 24h check reports authenticated=true.
+    Several Claude sessions each run a server; the state.json age check means
+    only one of them refreshes per window, and the shared browser makes it
+    safe even when two do."""
     time.sleep(60)
     while True:
         try:
+            reap_if_idle()
+        except Exception as e:
+            logger.warning(f"Shared browser reap failed: {e}")
+        try:
             state = config.NOTEBOOKLM_STATE_PATH
-            # Several Claude sessions each run a server; skip if another one just refreshed
             if not state.exists() or time.time() - state.stat().st_mtime > KEEPALIVE_INTERVAL_S - 600:
                 result = asyncio.run(refresh_auth_state())
                 logger.info(f"NotebookLM keepalive: {result}")
         except Exception as e:
             logger.warning(f"NotebookLM keepalive failed: {e}")
-        time.sleep(KEEPALIVE_INTERVAL_S)
+        time.sleep(KEEPALIVE_TICK_S)
 
 
 def main():

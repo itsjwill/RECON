@@ -8,6 +8,8 @@ v2: Added substance detection — measures whether the speaker demonstrates
     - Technical vocabulary depth = knows the domain vs parroting keywords
 """
 
+import time
+from pathlib import Path
 import logging
 import re
 from collections import Counter
@@ -112,13 +114,35 @@ STOP_WORDS = {
 }
 
 
+# Transcripts are cached on disk (a video's transcript doesn't change), and after
+# YouTube blocks this IP we stop asking for a while instead of failing ~15 times
+# per research call. Research still works meanwhile: NotebookLM imports YouTube
+# transcripts on Google's side; only the transcript-based scoring is skipped.
+_CACHE_DIR = Path.home() / "Library" / "Application Support" / "auto-research" / "transcripts"
+_BLOCK_FILE = _CACHE_DIR / "_ip_blocked_until"
+_BLOCK_BACKOFF_S = 3 * 60 * 60
+
+
+def _blocked() -> bool:
+    try:
+        return time.time() < float(_BLOCK_FILE.read_text())
+    except (OSError, ValueError):
+        return False
+
+
 def get_transcript(video_id: str) -> str | None:
     """
     Extract transcript text from a YouTube video.
 
-    Uses youtube-transcript-api (free, no API key).
-    Returns full transcript text or None if unavailable.
+    Uses youtube-transcript-api (free, no API key), with a disk cache and a
+    backoff when YouTube blocks the IP. Returns full transcript text or None.
     """
+    cache = _CACHE_DIR / f"{video_id}.txt"
+    if cache.exists():
+        text = cache.read_text()
+        return text or None
+    if _blocked():
+        return None
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -140,17 +164,34 @@ def get_transcript(video_id: str) -> str | None:
 
         if transcript is None:
             logger.warning(f"No transcript found for {video_id}")
+            _write_cache(cache, "")  # remember: this video has none
             return None
 
         entries = transcript.fetch()
         text = " ".join(
             (e.text if hasattr(e, "text") else e.get("text", "")) for e in entries
-        )
-        return text.strip() if text.strip() else None
+        ).strip()
+        _write_cache(cache, text)
+        return text or None
 
     except Exception as e:
-        logger.warning(f"Transcript extraction failed for {video_id}: {e}")
+        name = type(e).__name__
+        if name in ("IpBlocked", "RequestBlocked", "TooManyRequests"):
+            _write_cache(_BLOCK_FILE, str(time.time() + _BLOCK_BACKOFF_S))
+            logger.warning(f"YouTube is blocking transcript requests ({name}); "
+                           f"skipping transcript scoring for {_BLOCK_BACKOFF_S // 3600}h. "
+                           "NotebookLM still imports the videos.")
+        else:
+            logger.warning(f"Transcript extraction failed for {video_id}: {name}: {str(e)[:200]}")
         return None
+
+
+def _write_cache(path: Path, text: str) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    except OSError:
+        pass
 
 
 def _score_substance(text: str) -> dict:
